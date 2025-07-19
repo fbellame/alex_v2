@@ -50,12 +50,19 @@ async def detect_language_and_transfer(
     logger.info(f"Language detected: {detected_language} (French: {french_score}, English: {english_score})")
     logger.info(userdata.summarize())
     
+    # Perform immediate transfer by directly switching the session agent
     if detected_language == "french":
         userdata.current_agent = "french_booking_agent"
-        return "TRANSFER_TO_FRENCH_AGENT"
+        target_agent = userdata.agents["french_booking_agent"]
+        # Direct agent switch - let LiveKit handle the on_enter call automatically
+        context.session.agent = target_agent
+        return "Transferred to French agent"
     else:
         userdata.current_agent = "english_booking_agent"
-        return "TRANSFER_TO_ENGLISH_AGENT"
+        target_agent = userdata.agents["english_booking_agent"]
+        # Direct agent switch - let LiveKit handle the on_enter call automatically
+        context.session.agent = target_agent
+        return "Transferred to English agent"
 
 
 class GreetingAgent(Agent):
@@ -67,15 +74,15 @@ class GreetingAgent(Agent):
             1. Greet customers with "Hi Bonjour, welcome to SmileRight Dental Clinic, how can I help you today?"
             2. Listen to their first response
             3. Use the detect_language_and_transfer function to analyze their language preference
-            4. Transfer them to the appropriate specialized booking agent
+            4. Silently transfer them to the appropriate specialized booking agent
             
             IMPORTANT RULES:
             - Always greet with the exact phrase: "Hi Bonjour, welcome to SmileRight Dental Clinic, how can I help you today?"
             - After the user responds, immediately call detect_language_and_transfer with their response
             - Do not engage in booking activities - your only job is language detection and transfer
-            - If the function returns "TRANSFER_TO_FRENCH_AGENT", say: "Je vous transfère à notre agent de réservation en français."
-            - If the function returns "TRANSFER_TO_ENGLISH_AGENT", say: "I'm transferring you to our English booking agent."
-            - After the transfer message, your job is complete
+            - Do NOT announce the transfer - make it completely silent
+            - After calling detect_language_and_transfer, do not say anything else
+            - The transfer will happen automatically based on the function result
         """
         
         logger.info("GreetingAgent initialized")

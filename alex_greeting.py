@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from livekit import agents, api
-from livekit.agents import AgentSession, Agent, RoomInputOptions, JobContext, JobProcess
+from livekit.agents import AgentSession, Agent, RoomInputOptions, JobContext, JobProcess, function_tool, RunContext
 from livekit.plugins import (
     openai,
     deepgram,
@@ -23,34 +23,7 @@ from agents.french_booking_agent import FrenchBookingAgent
 load_dotenv()
 
 logger = logging.getLogger("alex_greeting_system")
-logger.setLevel(logging.INFO)
-
-class AgentManager:
-    """Manages agent transitions and state"""
-    
-    def __init__(self, session: AgentSession, userdata: UserData):
-        self.session = session
-        self.userdata = userdata
-        self.current_agent = None
-        
-    async def transfer_to_agent(self, agent_name: str):
-        """Transfer to a specific agent"""
-        if agent_name in self.userdata.agents:
-            target_agent = self.userdata.agents[agent_name]
-            
-            # Update userdata
-            self.userdata.prev_agent = self.current_agent
-            self.current_agent = target_agent
-            self.userdata.current_agent = agent_name
-            
-            logger.info(f"Transferring to {agent_name}")
-            logger.info(self.userdata.summarize())
-            
-            # Perform the agent transfer
-            await self.session.transfer_agent(target_agent)
-            
-        else:
-            logger.error(f"Agent {agent_name} not found in available agents")
+logger.setLevel(logging.DEBUG)
 
 def prewarm(proc: JobProcess):
     """Prewarm function to load VAD model"""
@@ -73,7 +46,7 @@ async def entrypoint(ctx: agents.JobContext):
     # Create optimized session
     session = AgentSession(
         userdata=userdata,
-        stt=deepgram.STT(model="nova-3", language="multi"),
+        stt=deepgram.STT(model="nova-2", language="multi"),
         llm=openai.LLM(model="gpt-4o-mini"),
         tts=openai.TTS(voice="nova"),
         vad=silero.VAD.load(),
@@ -81,21 +54,8 @@ async def entrypoint(ctx: agents.JobContext):
         max_tool_steps=5,
     )
     
-    # Create agent manager for handling transfers
-    agent_manager = AgentManager(session, userdata)
-    
-    # Set up event handlers for agent transfers
-    @session.on("agent_speech_committed")
-    async def on_agent_speech_committed(message):
-        """Handle agent transfers based on speech content"""
-        if "TRANSFER_TO_FRENCH_AGENT" in str(message):
-            await agent_manager.transfer_to_agent("french_booking_agent")
-        elif "TRANSFER_TO_ENGLISH_AGENT" in str(message):
-            await agent_manager.transfer_to_agent("english_booking_agent")
-    
     # Start with greeting agent
     userdata.current_agent = "greeting_agent"
-    agent_manager.current_agent = userdata.agents["greeting_agent"]
     
     await session.start(
         agent=userdata.agents["greeting_agent"],

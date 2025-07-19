@@ -88,7 +88,7 @@ async def get_clinic_info(context: RunContext_T) -> str:
 
 @function_tool()
 async def set_booking_reason(
-    reason: Annotated[str, Field(description="The booking reason")],
+    reason: Annotated[str, Field(description="The reason for the booking")],
     context: RunContext_T
 ) -> str:
     """Called when the user provides their booking reason."""

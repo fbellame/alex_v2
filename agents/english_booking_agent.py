@@ -1,4 +1,4 @@
-from livekit.agents import Agent
+from livekit.agents import Agent, function_tool, RunContext
 from livekit.plugins import openai
 from datetime import datetime
 import logging
@@ -66,6 +66,6 @@ class EnglishBookingAgent(Agent):
         
     async def on_enter(self) -> None:
         await self.session.say(
-            "Perfect! I'll help you book your appointment in English. Let's start with your preferred appointment date and time.",
+            "I'll help you book your appointment. What date and time would you prefer for your appointment?",
             allow_interruptions=False,
         )

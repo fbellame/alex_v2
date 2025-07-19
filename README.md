@@ -69,6 +69,8 @@ python alex_greeting.py
 
 This starts the multi-agent system with automatic language detection.
 
+**Note**: The system has been fixed to resolve the async callback error that was occurring with LiveKit event handlers.
+
 ### Running Original Systems (Legacy)
 
 ```bash
