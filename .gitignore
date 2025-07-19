@@ -34,3 +34,6 @@ var/
 
 # Installer l
 
+agents/__pycache__/english_booking_agent.cpython-310.pyc
+agents/__pycache__/french_booking_agent.cpython-310.pyc
+agents/__pycache__/greeting_agent.cpython-310.pyc
