@@ -1,27 +1,23 @@
-from typing import Any
-from dotenv import load_dotenv
-import logging
-from dataclasses import dataclass, field
-from typing import Annotated, Optional
-from pydantic import Field
-import time
-import yaml
-import asyncio
 import argparse
-import sys
-from datetime import datetime, timezone
-
-from livekit import agents, api
-from livekit.agents import AgentSession, Agent, RoomInputOptions, function_tool, RunContext, metrics, JobContext, JobProcess, UserStateChangedEvent, AgentStateChangedEvent
-from livekit.plugins import (
-    openai,
-    deepgram,
-    noise_cancellation,
-    silero,
-)
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
-from livekit.agents.voice import MetricsCollectedEvent
+import asyncio
 import logging
+import sys
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Annotated, Any, Optional
+
+import yaml
+from dotenv import load_dotenv
+from livekit import agents, api
+from livekit.agents import (Agent, AgentSession, AgentStateChangedEvent,
+                            JobContext, JobProcess, RoomInputOptions,
+                            RunContext, UserStateChangedEvent, function_tool,
+                            metrics)
+from livekit.agents.voice import MetricsCollectedEvent
+from livekit.plugins import deepgram, noise_cancellation, openai, silero
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from pydantic import Field
 
 load_dotenv()
 
