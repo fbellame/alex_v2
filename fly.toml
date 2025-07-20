@@ -23,13 +23,13 @@ kill_timeout = "300s"
 [deploy]
   # We want to leave the previous deploy running to allow active conversations to drain
   # so we use a bluegreen strategy. 
-  strategy = "bluegreen"
+  #strategy = "bluegreen"
 
 # A check if required for the bluegreen deployment strategy.
-[[checks]]
-name = "healthcheck"
-type = "tcp"
-interval = "10s"
-timeout = "2s"
-grace_period = "5s"
-port = 8081  # Default health check port
+#[[checks]]
+#name = "healthcheck"
+#type = "tcp"
+#interval = "10s"
+#timeout = "2s"
+#grace_period = "5s"
+#port = 8081  # Default health check port
