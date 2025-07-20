@@ -16,6 +16,7 @@ kill_timeout = "300s"
   PYTHONUNBUFFERED = '1'
   # Set larger timeouts for initialization
   LIVEKIT_AGENTS_INIT_TIMEOUT = "120"
+  LIVEKIT_AGENTS_INFERENCE_ENABLED = "false"
 
 [[vm]]
   memory = '4gb'
