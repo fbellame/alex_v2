@@ -14,13 +14,21 @@ kill_timeout = "300s"
 
 [env]
   PYTHONUNBUFFERED = '1'
+  # Set larger timeouts for initialization
+  LIVEKIT_AGENTS_INIT_TIMEOUT = "120"
 
 [[vm]]
   memory = '4gb'
   cpu_kind = 'shared'
   cpus = 2
 
-[deploy]
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false  # Important for agents
+  auto_start_machines = true
+
+#[deploy]
   # We want to leave the previous deploy running to allow active conversations to drain
   # so we use a bluegreen strategy. 
   #strategy = "bluegreen"
