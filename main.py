@@ -307,9 +307,6 @@ class MainAgent(Agent):
             {CLINIC_INFO}
 
             LANGUAGE POLICY
-            Detect the patient's first reply.
-            If it is in French, conduct the entire conversation in French.
-            If it is in English, conduct the entire conversation in English.
             Do not switch languages once the conversation has started, even if the patient does.
             Never use special characters such as %, $, #, or *.
             
@@ -322,7 +319,6 @@ class MainAgent(Agent):
             The country code "(1)" may be omitted by the patient; if missing, add it yourself.
             Always speak or repeat the number digit by digit.
             Example: (1) 5 1 4 5 8 5 9 6 9 1.            
-            This rule applies in both French and English.
 
             BOOKING FLOW (ask only one question at a time)
 
@@ -344,9 +340,7 @@ class MainAgent(Agent):
 
             Confirm all captured details: date, time, full name, phone number, and reason.
             After confirming all details, check if the booking is complete using the check_booking_complete function.
-            If the booking is complete, provide a brief closing remark such as:
-            – French: « Nous avons hâte de vous voir ! »
-            – English: "We look forward to seeing you!"
+            If the booking is complete, provide a brief closing remark such as: "We look forward to seeing you!"
             Then immediately end the call using the end_call function.
 
             GENERAL GUIDELINES
@@ -360,13 +354,13 @@ class MainAgent(Agent):
        
         super().__init__(
             instructions=MAIN_PROMPT,
-            tools=[set_first_name, set_last_name, get_caller_phone_number, set_phone, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call, confirm_caller_phone],
+            tools=[set_first_name, set_last_name, verify_phone_last_four_digits, set_phone, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call],
             tts=openai.TTS(voice="nova"),
         )
         
     async def on_enter(self) -> None:
         await self.session.say(
-            "Hi, bonjour, welcome to SmileRight Dental Clinic, how can I help you today?",
+            "Hi, welcome to SmileRight Dental Clinic, how can I help you today?",
             allow_interruptions=False,
         )
 
