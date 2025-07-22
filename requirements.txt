@@ -7,3 +7,6 @@ pandas
 matplotlib 
 seaborn 
 pyyaml
+twilio
+websockets
+requests

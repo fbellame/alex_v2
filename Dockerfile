@@ -39,10 +39,10 @@ RUN python -m pip install --user --no-cache-dir -r requirements.txt
 COPY . .
 
 # ensure that any dependent models are downloaded at build-time
-RUN python alex_main.py download-files
+RUN python main.py download-files
 
 # expose healthcheck port
 EXPOSE 8081
 
 # Run the application.
-CMD ["python", "alex_main.py", "start"]
+CMD ["python", "main.py", "start"]
