@@ -9,10 +9,12 @@ from typing import Annotated, Optional
 import yaml
 from dotenv import load_dotenv
 from livekit import agents
+from livekit import api, rtc
 from livekit.agents import (Agent, AgentSession,
                             JobProcess, RoomInputOptions,
                             RunContext, function_tool)
 from livekit.plugins import deepgram, noise_cancellation, openai, silero
+from livekit.agents import get_job_context
 from pydantic import Field
 from twilio.rest import Client
 import re
@@ -195,6 +197,17 @@ async def set_booking_reason(
     
     return f"The booking reason is updated to {reason}"
 
+# to hang up the call as part of a function call
+@function_tool
+async def end_call(ctx: RunContext):
+    """Called when the user wants to end the call"""
+    # let the agent finish speaking
+    current_speech = ctx.session.current_speech
+    if current_speech:
+        await current_speech.wait_for_playout()
+
+    await hangup_call()
+
 @function_tool()
 async def send_confirmation_sms(context: RunContext_T) -> str:
     """Send SMS confirmation to the customer with all booking details."""
@@ -275,24 +288,24 @@ async def check_booking_complete(context: RunContext_T) -> str:
         
         return f"Booking incomplete. Missing: {', '.join(missing_fields)}"
 
-@function_tool()
-async def end_call(context: RunContext_T) -> str:
-    """End the call after booking is complete."""
-    logger.info("Ending call - booking completed")
+# @function_tool()
+# async def end_call(context: RunContext_T) -> str:
+#     """End the call after booking is complete."""
+#     logger.info("Ending call - booking completed")
     
-    try:
-        # Get the session from userdata
-        session = context.userdata.session
-        if session:
-            await session.aclose()
-            logger.info("Session closed successfully via userdata.session")
-        else:
-            logger.warning("No session found in userdata to close")
+#     try:
+#         # Get the session from userdata
+#         session = context.userdata.session
+#         if session:
+#             await session.aclose()
+#             logger.info("Session closed successfully via userdata.session")
+#         else:
+#             logger.warning("No session found in userdata to close")
             
-    except Exception as e:
-        logger.error(f"Error ending call: {e}")
+#     except Exception as e:
+#         logger.error(f"Error ending call: {e}")
     
-    return "Call ended successfully"
+#     return "Call ended successfully"
 
 
 class MainAgent(Agent):
@@ -312,13 +325,6 @@ class MainAgent(Agent):
             
             PHONE NUMBER RULE
             The phone number is automatically initialized from the room name when the call starts.
-            If a phone number is already available in the system, use verify_phone_last_four_digits function to show the last 4 digits and ask for verification.
-            If the caller confirms using confirm_phone_verification function, the number is verified for SMS confirmation.
-            If the caller denies or if no phone number is available, request the telephone number digit by digit using set_phone function.
-            The required format is (1) 111 222 3333.
-            The country code "(1)" may be omitted by the patient; if missing, add it yourself.
-            Always speak or repeat the number digit by digit.
-            Example: (1) 5 1 4 5 8 5 9 6 9 1.            
 
             BOOKING FLOW (ask only one question at a time)
 
@@ -329,12 +335,6 @@ class MainAgent(Agent):
             Ask for the patient's first name.
 
             Ask for the patient's last name and request that they spell it letter by letter.
-
-            For the telephone number:
-            1. If a phone number is already available, use verify_phone_last_four_digits to show the last 4 digits
-            2. Ask for confirmation using confirm_phone_verification function
-            3. If confirmed, proceed to next step
-            4. If not confirmed or no phone number available, ask for the number digit by digit using set_phone
 
             Ask for the reason for the visit.
 
@@ -354,7 +354,7 @@ class MainAgent(Agent):
        
         super().__init__(
             instructions=MAIN_PROMPT,
-            tools=[set_first_name, set_last_name, verify_phone_last_four_digits, set_phone, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call],
+            tools=[set_first_name, set_last_name, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call],
             tts=openai.TTS(voice="nova"),
         )
         
@@ -379,6 +379,19 @@ def extract_phone_from_room_name(room_name: str) -> str:
         return match.group(1)
     
     return None
+
+# Add this function definition anywhere
+async def hangup_call():
+    ctx = get_job_context()
+    if ctx is None:
+        # Not running in a job context
+        return
+    
+    await ctx.api.room.delete_room(
+        api.DeleteRoomRequest(
+            room=ctx.room.name,
+        )
+    )
     
 async def entrypoint(ctx: agents.JobContext):
     await ctx.connect()
@@ -401,7 +414,7 @@ async def entrypoint(ctx: agents.JobContext):
     # Use optimized session class
     session = AgentSession(
         userdata=userdata,
-        stt=deepgram.STT(model="nova-3", language="multi", ),
+        stt=deepgram.STT(model="nova-3", language="en-US"),
         llm=openai.LLM(model="gpt-4o-mini"),
         tts=openai.TTS(voice="nova"),
         vad=silero.VAD.load(),
