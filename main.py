@@ -2,11 +2,9 @@
 import logging
 import os
 
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Annotated, Optional
+from typing import Annotated
 
-import yaml
 from dotenv import load_dotenv
 from livekit import agents
 from livekit.agents import (Agent, AgentSession,
@@ -17,33 +15,13 @@ from pydantic import Field
 from twilio.rest import Client
 import re
 
+from user_data import UserData
+from recording import start_s3_recording
+
 load_dotenv()
 
 logger = logging.getLogger("dental_assistant")
 logger.setLevel(logging.INFO)
-
-@dataclass
-class UserData:
-    customer_first_name: Optional[str] = None
-    customer_last_name: Optional[str] = None
-    customer_phone: Optional[str] = None
-    booking_date_time: Optional[str] = None
-    booking_reason: Optional[str] = None
-    
-    agents: dict[str, Agent] = field(default_factory=dict)
-    prev_agent: Optional[Agent] = None
-    session: Optional[AgentSession] = None
-    
-
-    def summarize(self) -> str:
-        data = {
-            "customer_first_name": self.customer_first_name or "unknown",
-            "customer_last_name": self.customer_last_name or "unknown",
-            "customer_phone": self.customer_phone or "unknown",
-            "booking_date_time": self.booking_date_time or "unknown",
-            "booking_reason": self.booking_reason or "unknown",
-        }
-        return yaml.dump(data)
     
 RunContext_T = RunContext[UserData]
 
@@ -173,7 +151,7 @@ async def get_current_datetime(context: RunContext_T) -> str:
 # Clinic information constant
 CLINIC_INFO = (
     "SmileRight Dental Clinic is located at 5561 St-Denis Street, Montreal, Canada. "
-    "Our opening hours are Monday to Friday from 8:00 AM to 12:00 PM and 1:00 PM to 6:00 PM. "
+    "Our opening hours are Monday to Friday from 8:00 AM to 6:00 PM. "
     "We are closed on weekends."
 )
 
@@ -299,7 +277,7 @@ class MainAgent(Agent):
     def __init__(self) -> None:
         current_time = datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')
         
-        OPERATING_HOURS = "Monday to Friday from 8:00 AM to 12:00 PM and 1:00 PM to 6:00 PM"
+        OPERATING_HOURS = "Monday to Friday from 8:00 AM to 6:00 PM"
         
         MAIN_PROMPT = f"""
             You are the automated booking agent for SmileRight Dental Clinic.
@@ -308,22 +286,9 @@ class MainAgent(Agent):
 
             LANGUAGE POLICY
             Detect the patient's first reply.
-            If it is in French, conduct the entire conversation in French.
-            If it is in English, conduct the entire conversation in English.
             Do not switch languages once the conversation has started, even if the patient does.
             Never use special characters such as %, $, #, or *.
             
-            PHONE NUMBER RULE
-            The phone number is automatically initialized from the room name when the call starts.
-            If a phone number is already available in the system, use verify_phone_last_four_digits function to show the last 4 digits and ask for verification.
-            If the caller confirms using confirm_phone_verification function, the number is verified for SMS confirmation.
-            If the caller denies or if no phone number is available, request the telephone number digit by digit using set_phone function.
-            The required format is (1) 111 222 3333.
-            The country code "(1)" may be omitted by the patient; if missing, add it yourself.
-            Always speak or repeat the number digit by digit.
-            Example: (1) 5 1 4 5 8 5 9 6 9 1.            
-            This rule applies in both French and English.
-
             BOOKING FLOW (ask only one question at a time)
 
             Ask for the desired appointment date and time.
@@ -334,18 +299,11 @@ class MainAgent(Agent):
 
             Ask for the patient's last name and request that they spell it letter by letter.
 
-            For the telephone number:
-            1. If a phone number is already available, use verify_phone_last_four_digits to show the last 4 digits
-            2. Ask for confirmation using confirm_phone_verification function
-            3. If confirmed, proceed to next step
-            4. If not confirmed or no phone number available, ask for the number digit by digit using set_phone
-
             Ask for the reason for the visit.
 
             Confirm all captured details: date, time, full name, phone number, and reason.
             After confirming all details, check if the booking is complete using the check_booking_complete function.
             If the booking is complete, provide a brief closing remark such as:
-            – French: « Nous avons hâte de vous voir ! »
             – English: "We look forward to seeing you!"
             Then immediately end the call using the end_call function.
 
@@ -360,13 +318,13 @@ class MainAgent(Agent):
        
         super().__init__(
             instructions=MAIN_PROMPT,
-            tools=[set_first_name, set_last_name, get_caller_phone_number, set_phone, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call, confirm_caller_phone],
+            tools=[set_first_name, set_last_name, set_phone, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call],
             tts=openai.TTS(voice="nova"),
         )
         
     async def on_enter(self) -> None:
         await self.session.say(
-            "Hi, bonjour, welcome to SmileRight Dental Clinic, how can I help you today?",
+            "Hi, welcome to SmileRight Dental Clinic, how can I help you today?",
             allow_interruptions=False,
         )
 
@@ -387,11 +345,11 @@ def extract_phone_from_room_name(room_name: str) -> str:
     return None
     
 async def entrypoint(ctx: agents.JobContext):
-    await ctx.connect()
     
    # Get room info and extract phone number
     room = ctx.room
     room_name = room.name
+    
     phone_number = extract_phone_from_room_name(room_name)
     
     logger.info(f"Room name: {room_name}")
@@ -404,10 +362,18 @@ async def entrypoint(ctx: agents.JobContext):
         "main_agent": MainAgent(),
     })
     
+    recording_success = await start_s3_recording(room_name, userdata)
+    if recording_success:
+        logger.info("S3 Recording started successfully")
+    else:
+        logger.warning("S3 Recording failed, continuing without recording")    
+    await ctx.connect()
+    
+    
     # Use optimized session class
     session = AgentSession(
         userdata=userdata,
-        stt=deepgram.STT(model="nova-3", language="multi", ),
+        stt=deepgram.STT(model="nova-3", language="en-US", ),
         llm=openai.LLM(model="gpt-4o-mini"),
         tts=openai.TTS(voice="nova"),
         vad=silero.VAD.load(),
