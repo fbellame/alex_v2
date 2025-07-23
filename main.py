@@ -2,11 +2,9 @@
 import logging
 import os
 
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Annotated, Optional
+from typing import Annotated
 
-import yaml
 from dotenv import load_dotenv
 from livekit import agents
 from livekit import api, rtc
@@ -19,33 +17,13 @@ from pydantic import Field
 from twilio.rest import Client
 import re
 
+from user_data import UserData
+from recording import start_s3_recording
+
 load_dotenv()
 
 logger = logging.getLogger("dental_assistant")
 logger.setLevel(logging.INFO)
-
-@dataclass
-class UserData:
-    customer_first_name: Optional[str] = None
-    customer_last_name: Optional[str] = None
-    customer_phone: Optional[str] = None
-    booking_date_time: Optional[str] = None
-    booking_reason: Optional[str] = None
-    
-    agents: dict[str, Agent] = field(default_factory=dict)
-    prev_agent: Optional[Agent] = None
-    session: Optional[AgentSession] = None
-    
-
-    def summarize(self) -> str:
-        data = {
-            "customer_first_name": self.customer_first_name or "unknown",
-            "customer_last_name": self.customer_last_name or "unknown",
-            "customer_phone": self.customer_phone or "unknown",
-            "booking_date_time": self.booking_date_time or "unknown",
-            "booking_reason": self.booking_reason or "unknown",
-        }
-        return yaml.dump(data)
     
 RunContext_T = RunContext[UserData]
 
@@ -175,7 +153,7 @@ async def get_current_datetime(context: RunContext_T) -> str:
 # Clinic information constant
 CLINIC_INFO = (
     "SmileRight Dental Clinic is located at 5561 St-Denis Street, Montreal, Canada. "
-    "Our opening hours are Monday to Friday from 8:00 AM to 12:00 PM and 1:00 PM to 6:00 PM. "
+    "Our opening hours are Monday to Friday from 8:00 AM to 6:00 PM. "
     "We are closed on weekends."
 )
 
@@ -288,31 +266,13 @@ async def check_booking_complete(context: RunContext_T) -> str:
         
         return f"Booking incomplete. Missing: {', '.join(missing_fields)}"
 
-# @function_tool()
-# async def end_call(context: RunContext_T) -> str:
-#     """End the call after booking is complete."""
-#     logger.info("Ending call - booking completed")
-    
-#     try:
-#         # Get the session from userdata
-#         session = context.userdata.session
-#         if session:
-#             await session.aclose()
-#             logger.info("Session closed successfully via userdata.session")
-#         else:
-#             logger.warning("No session found in userdata to close")
-            
-#     except Exception as e:
-#         logger.error(f"Error ending call: {e}")
-    
-#     return "Call ended successfully"
 
 
 class MainAgent(Agent):
     def __init__(self) -> None:
         current_time = datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')
         
-        OPERATING_HOURS = "Monday to Friday from 8:00 AM to 12:00 PM and 1:00 PM to 6:00 PM"
+        OPERATING_HOURS = "Monday to Friday from 8:00 AM to 6:00 PM"
         
         MAIN_PROMPT = f"""
             You are the automated booking agent for SmileRight Dental Clinic.
@@ -320,11 +280,9 @@ class MainAgent(Agent):
             {CLINIC_INFO}
 
             LANGUAGE POLICY
+            Detect the patient's first reply.
             Do not switch languages once the conversation has started, even if the patient does.
             Never use special characters such as %, $, #, or *.
-            
-            PHONE NUMBER RULE
-            The phone number is automatically initialized from the room name when the call starts.
 
             BOOKING FLOW (ask only one question at a time)
 
@@ -340,6 +298,7 @@ class MainAgent(Agent):
 
             Confirm all captured details: date, time, full name, phone number, and reason.
             After confirming all details, check if the booking is complete using the check_booking_complete function.
+
             If the booking is complete, provide a brief closing remark such as: "We look forward to seeing you!"
             Then immediately end the call using the end_call function.
 
@@ -394,11 +353,11 @@ async def hangup_call():
     )
     
 async def entrypoint(ctx: agents.JobContext):
-    await ctx.connect()
     
    # Get room info and extract phone number
     room = ctx.room
     room_name = room.name
+    
     phone_number = extract_phone_from_room_name(room_name)
     
     logger.info(f"Room name: {room_name}")
@@ -410,6 +369,14 @@ async def entrypoint(ctx: agents.JobContext):
     userdata.agents.update({
         "main_agent": MainAgent(),
     })
+    
+    recording_success = await start_s3_recording(room_name, userdata)
+    if recording_success:
+        logger.info("S3 Recording started successfully")
+    else:
+        logger.warning("S3 Recording failed, continuing without recording")    
+    await ctx.connect()
+    
     
     # Use optimized session class
     session = AgentSession(

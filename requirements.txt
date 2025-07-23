@@ -10,3 +10,4 @@ pyyaml
 twilio
 websockets
 requests
+boto3
