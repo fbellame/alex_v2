@@ -7,10 +7,12 @@ from typing import Annotated
 
 from dotenv import load_dotenv
 from livekit import agents
+from livekit import api, rtc
 from livekit.agents import (Agent, AgentSession,
                             JobProcess, RoomInputOptions,
                             RunContext, function_tool)
 from livekit.plugins import deepgram, noise_cancellation, openai, silero
+from livekit.agents import get_job_context
 from pydantic import Field
 from twilio.rest import Client
 import re
@@ -101,6 +103,17 @@ async def set_booking_reason(
     
     return f"The booking reason is updated to {reason}"
 
+# to hang up the call as part of a function call
+@function_tool
+async def end_call(ctx: RunContext):
+    """Called when the user wants to end the call"""
+    # let the agent finish speaking
+    current_speech = ctx.session.current_speech
+    if current_speech:
+        await current_speech.wait_for_playout()
+
+    await hangup_call()
+
 @function_tool()
 async def send_confirmation_sms(context: RunContext_T) -> str:
     """Send SMS confirmation to the customer with all booking details."""
@@ -181,24 +194,6 @@ async def check_booking_complete(context: RunContext_T) -> str:
         
         return f"Booking incomplete. Missing: {', '.join(missing_fields)}"
 
-@function_tool()
-async def end_call(context: RunContext_T) -> str:
-    """End the call after booking is complete."""
-    logger.info("Ending call - booking completed")
-    
-    try:
-        # Get the session from userdata
-        session = context.userdata.session
-        if session:
-            await session.aclose()
-            logger.info("Session closed successfully via userdata.session")
-        else:
-            logger.warning("No session found in userdata to close")
-            
-    except Exception as e:
-        logger.error(f"Error ending call: {e}")
-    
-    return "Call ended successfully"
 
 
 class MainAgent(Agent):
@@ -216,7 +211,7 @@ class MainAgent(Agent):
             Detect the patient's first reply.
             Do not switch languages once the conversation has started, even if the patient does.
             Never use special characters such as %, $, #, or *.
-            
+
             BOOKING FLOW (ask only one question at a time)
 
             Ask for the desired appointment date and time.
@@ -231,8 +226,8 @@ class MainAgent(Agent):
 
             Confirm all captured details: date, time, full name and reason.
             After confirming all details, check if the booking is complete using the check_booking_complete function.
-            If the booking is complete, provide a brief closing remark such as:
-            – English: "We look forward to seeing you!"
+
+            If the booking is complete, provide a brief closing remark such as: "We look forward to seeing you!"
             Then immediately end the call using the end_call function.
 
             GENERAL GUIDELINES
@@ -271,6 +266,19 @@ def extract_phone_from_room_name(room_name: str) -> str:
         return match.group(1)
     
     return None
+
+# Add this function definition anywhere
+async def hangup_call():
+    ctx = get_job_context()
+    if ctx is None:
+        # Not running in a job context
+        return
+    
+    await ctx.api.room.delete_room(
+        api.DeleteRoomRequest(
+            room=ctx.room.name,
+        )
+    )
     
 async def entrypoint(ctx: agents.JobContext):
     
@@ -301,7 +309,7 @@ async def entrypoint(ctx: agents.JobContext):
     # Use optimized session class
     session = AgentSession(
         userdata=userdata,
-        stt=deepgram.STT(model="nova-3", language="en-US", ),
+        stt=deepgram.STT(model="nova-3", language="en-US"),
         llm=openai.LLM(model="gpt-4o-mini"),
         tts=openai.TTS(voice="nova"),
         vad=silero.VAD.load(),
