@@ -12,6 +12,7 @@ logger.setLevel(logging.INFO)
 
 async def start_s3_recording(room_name: str, userdata: UserData) -> bool:
     """Start recording using LiveKit Egress API with S3 storage"""
+    lkapi = None
     try:
         # Get credentials from environment
         livekit_url = os.getenv("LIVEKIT_URL")
@@ -76,3 +77,11 @@ async def start_s3_recording(room_name: str, userdata: UserData) -> bool:
     except Exception as e:
         logger.error(f"S3 recording error: {e}")
         return False
+    finally:
+        # Always close the API client to prevent connection leaks
+        if lkapi:
+            try:
+                await lkapi.aclose()
+                logger.debug("LiveKit API client closed successfully")
+            except Exception as e:
+                logger.warning(f"Error closing LiveKit API client: {e}")
