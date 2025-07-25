@@ -27,27 +27,6 @@ logger.setLevel(logging.INFO)
     
 RunContext_T = RunContext[UserData]
 
-def format_phone_number(phone: str) -> str:
-    """Format phone number to Twilio-compatible format (+12223334444)."""
-    if not phone:
-        return phone
-    
-    # Remove all non-digit characters
-    digits_only = ''.join(filter(str.isdigit, phone))
-    
-    # If the number doesn't start with 1 and has 10 digits, add 1
-    if len(digits_only) == 10:
-        digits_only = '1' + digits_only
-    # If the number has 11 digits and starts with 1, keep as is
-    elif len(digits_only) == 11 and digits_only.startswith('1'):
-        pass
-    # If the number has 11 digits but doesn't start with 1, assume it's missing the country code
-    elif len(digits_only) == 11 and not digits_only.startswith('1'):
-        digits_only = '1' + digits_only
-    
-    # Add the + prefix
-    return '+' + digits_only
-
 @function_tool()
 async def set_first_name(
     name: Annotated[str, Field(description="The customer's first name")],
@@ -75,57 +54,6 @@ async def set_last_name(
     logger.info(userdata.summarize())
         
     return f"The last name is updated to {name}"
-
-@function_tool()
-async def verify_phone_last_four_digits(context: RunContext_T) -> str:
-    """Verify the customer's phone number by showing the last 4 digits."""
-    userdata = context.userdata
-    
-    if userdata.customer_phone:
-        # Get the last 4 digits for verification
-        phone_digits = ''.join(filter(str.isdigit, userdata.customer_phone))
-        if len(phone_digits) >= 4:
-            last_four = phone_digits[-4:]
-        else:
-            last_four = "0000"
-        
-        logger.info(f"Verifying phone number ending in: {last_four}")
-        return f"I have your phone number ending in {last_four}. Is this correct for sending the confirmation SMS?"
-    else:
-        return "I don't have your phone number. Could you please provide it digit by digit?"
-
-@function_tool()
-async def confirm_phone_verification(
-    confirmed: Annotated[bool, Field(description="Whether the caller confirms the phone number ending digits are correct")],
-    context: RunContext_T,
-) -> str:
-    """Called when the customer confirms or denies the phone number verification."""
-    userdata = context.userdata
-    
-    if confirmed:
-        logger.info(f"Phone number verified: {userdata.customer_phone}")
-        return f"Thank you! Your phone number {userdata.customer_phone} has been verified for SMS confirmation."
-    else:
-        # Clear the existing phone number and ask for manual input
-        userdata.customer_phone = None
-        return "I understand. Please provide your correct phone number digit by digit in the format (1) 111 222 3333."
-
-@function_tool()
-async def set_phone(
-    phone: Annotated[str, Field(description="The customer's phone number")],
-    context: RunContext_T,
-) -> str:
-    """Called when the customer provides their phone number."""
-    userdata = context.userdata
-    
-    # Format phone number to Twilio-compatible format
-    formatted_phone = format_phone_number(phone)
-    userdata.customer_phone = formatted_phone
-    
-    # Log the updated phone number
-    logger.info(userdata.summarize())
-
-    return f"The phone number is updated to {formatted_phone}"
 
 @function_tool()
 async def set_booking_date_time(
@@ -296,7 +224,7 @@ class MainAgent(Agent):
 
             Ask for the reason for the visit.
 
-            Confirm all captured details: date, time, full name, phone number, and reason.
+            Confirm all captured details: date, time, full name and reason.
             After confirming all details, check if the booking is complete using the check_booking_complete function.
 
             If the booking is complete, provide a brief closing remark such as: "We look forward to seeing you!"
