@@ -22,7 +22,7 @@ from recording import start_s3_recording
 
 load_dotenv()
 
-logger = logging.getLogger("dental_assistant")
+logger = logging.getLogger("futures_survey_assistant")
 logger.setLevel(logging.INFO)
     
 RunContext_T = RunContext[UserData]
@@ -56,52 +56,12 @@ async def set_last_name(
     return f"The last name is updated to {name}"
 
 @function_tool()
-async def set_booking_date_time(
-    date_time: Annotated[str, Field(description="The customer's booking date and time")],
-    context: RunContext_T
-) -> str:
-    """Called when the customer provides their booking date and time."""
-    userdata = context.userdata
-    logger.info("date_time: %s", date_time)
-    userdata.booking_date_time = date_time
-    
-    # Log the updated booking date and time
-    logger.info(userdata.summarize())
-
-    return f"The booking date and time is updated to {date_time}"
-
-@function_tool()
 async def get_current_datetime(context: RunContext_T) -> str:
     """Get the current date and time."""
     current_time = datetime.now(timezone.utc)
     # Convert to Montreal timezone (EST/EDT)
     montreal_time = current_time.astimezone()
     return f"Current date and time: {montreal_time.strftime('%A, %B %d, %Y at %I:%M %p')}"
-
-# Clinic information constant
-CLINIC_INFO = (
-    "SmileRight Dental Clinic is located at 5561 St-Denis Street, Montreal, Canada. "
-    "Our opening hours are Monday to Friday from 8:00 AM to 6:00 PM. "
-    "We are closed on weekends."
-)
-
-@function_tool()
-async def get_clinic_info(context: RunContext_T) -> str:
-    """Get dental clinic location and opening hours information."""
-    return CLINIC_INFO
-
-@function_tool()
-async def set_booking_reason(
-    reason: Annotated[str, Field(description="The booking reason")],
-    context: RunContext_T
-) -> str:
-    """Called when the user provides their booking reason."""
-    userdata = context.userdata
-    userdata.booking_reason = reason
-    # Log the updated booking reason 
-    logger.info(userdata.summarize())
-    
-    return f"The booking reason is updated to {reason}"
 
 # to hang up the call as part of a function call
 @function_tool
@@ -158,43 +118,6 @@ Reason: {userdata.booking_reason}
         logger.error(f"Error sending confirmation SMS: {e}")
         return f"Failed to send confirmation SMS: {str(e)}"
 
-@function_tool()
-async def check_booking_complete(context: RunContext_T) -> str:
-    """Check if all booking information has been collected and send confirmation SMS."""
-    userdata = context.userdata
-    
-    required_fields = [
-        userdata.customer_first_name,
-        userdata.customer_last_name,
-        userdata.customer_phone,
-        userdata.booking_date_time,
-        userdata.booking_reason
-    ]
-    
-    if all(field is not None and field.strip() != "" for field in required_fields):
-        logger.info("Booking complete - all information collected")
-        
-        # Send confirmation SMS
-        sms_result = await send_confirmation_sms(context)
-        logger.info(f"SMS confirmation result: {sms_result}")
-        
-        return "Booking is complete. All required information has been collected and confirmation SMS has been sent. Please end the call now."
-    else:
-        missing_fields = []
-        if not userdata.customer_first_name:
-            missing_fields.append("first name")
-        if not userdata.customer_last_name:
-            missing_fields.append("last name")
-        if not userdata.customer_phone:
-            missing_fields.append("phone number")
-        if not userdata.booking_date_time:
-            missing_fields.append("appointment date/time")
-        if not userdata.booking_reason:
-            missing_fields.append("reason for visit")
-        
-        return f"Booking incomplete. Missing: {', '.join(missing_fields)}"
-
-
 
 class MainAgent(Agent):
     def __init__(self) -> None:
@@ -203,51 +126,58 @@ class MainAgent(Agent):
         OPERATING_HOURS = "Monday to Friday from 8:00 AM to 6:00 PM"
         
         MAIN_PROMPT = f"""
-            You are the automated booking agent for SmileRight Dental Clinic.
-            Current date and time: {current_time}
-            {CLINIC_INFO}
+You are the automated survey agent for the InnoVet-AMR initiative on climate change, antimicrobial resistance (AMR), and animal health.
+Current date and time: {current_time}
 
-            LANGUAGE POLICY
-            Detect the patient's first reply.
-            Do not switch languages once the conversation has started, even if the patient does.
-            Never use special characters such as %, $, #, or *.
+LANGUAGE POLICY
+Detect the participant’s first reply.
+Do not switch languages once the conversation has started, even if the participant does.
+Never use special characters such as %, $, #, or *.
 
-            BOOKING FLOW (ask only one question at a time)
+SURVEY FLOW (ask only one question at a time)
 
-            Ask for the desired appointment date and time.
-            Validate that the chosen slot falls within operating hours ({OPERATING_HOURS}).
-            If it does not, politely suggest the nearest available slot.
+1) Briefly explain purpose:
+   “Thank you for taking part in our InnoVet-AMR survey. We are collecting insights on trends and the changing landscape of climate change, AMR, and animal health.”
 
-            Ask for the patient's first name.
+2) Question 1:
+   “What are your top three trends that are driving change in this space?”
 
-            Ask for the patient's last name and request that they spell it letter by letter.
+3) Question 2:
+   “What are some of the biggest challenges and issues you are experiencing?”
 
-            Ask for the reason for the visit.
+4) Question 3:
+   “What new opportunities do you see to leverage innovation?”
 
-            Confirm all captured details: date, time, full name and reason.
-            After confirming all details, check if the booking is complete using the check_booking_complete function.
+5) Recap:
+   Summarize the participant’s three answers succinctly.
 
-            If the booking is complete, provide a brief closing remark such as: "We look forward to seeing you!"
-            Then immediately end the call using the end_call function.
+6) Completion check:
+   After the recap, call check_survey_complete to ensure all three questions were answered.
 
-            GENERAL GUIDELINES
-            Never ask two questions at once.
-            Respond in clear, complete sentences.
-            If the user provides unexpected information, politely steer them back to the required step.
-            If the user asks for anything outside your scope (for example medical advice), respond succinctly that you can only help with booking appointments.
-            If the user requests general information about the clinic such as opening hours, address, or available services, provide the requested information in the language used for the conversation."""
+7) Closing:
+   If complete, say:
+   “Thank you for completing this survey. We value your input and look forward to you participating in our other research.”
+   Then immediately end the call using the end_call function.
+
+GENERAL GUIDELINES
+Ask only one question at a time.
+Respond in clear, complete sentences.
+If the participant provides unexpected information, politely steer them back to the current question.
+Do not provide medical or technical advice; clarify that your role is limited to conducting this survey.
+If the participant asks for information outside your scope, respond succinctly that you can only administer the survey.
+"""
             
         logger.info("MainAgent initialized with prompt: %s", MAIN_PROMPT)
        
         super().__init__(
             instructions=MAIN_PROMPT,
-            tools=[set_first_name, set_last_name, set_booking_date_time, set_booking_reason, get_current_datetime, get_clinic_info, check_booking_complete, send_confirmation_sms, end_call],
+            tools=[extract_phone_from_room_name],
             tts=openai.TTS(voice="nova"),
         )
         
     async def on_enter(self) -> None:
         await self.session.say(
-            "Hi, welcome to SmileRight Dental Clinic, how can I help you today?",
+            "Hello, welcome to our survey.",
             allow_interruptions=False,
         )
 
