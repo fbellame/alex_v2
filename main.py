@@ -27,103 +27,9 @@ logger.setLevel(logging.INFO)
     
 RunContext_T = RunContext[UserData]
 
-@function_tool()
-async def set_first_name(
-    name: Annotated[str, Field(description="The customer's first name")],
-    context: RunContext_T,
-) -> str:
-    """Called when the customer provides their first name."""
-    userdata = context.userdata
-    userdata.customer_first_name = name
-    
-    # Log the updated first name
-    logger.info(userdata.summarize())
-        
-    return f"The first name is updated to {name}"
-
-@function_tool()
-async def set_last_name(
-    name: Annotated[str, Field(description="The customer's last name")],
-    context: RunContext_T,
-) -> str:
-    """Called when the customer provides their last name."""
-    userdata = context.userdata
-    userdata.customer_last_name = name
-    
-    # Log the updated last name
-    logger.info(userdata.summarize())
-        
-    return f"The last name is updated to {name}"
-
-@function_tool()
-async def get_current_datetime(context: RunContext_T) -> str:
-    """Get the current date and time."""
-    current_time = datetime.now(timezone.utc)
-    # Convert to Montreal timezone (EST/EDT)
-    montreal_time = current_time.astimezone()
-    return f"Current date and time: {montreal_time.strftime('%A, %B %d, %Y at %I:%M %p')}"
-
-# to hang up the call as part of a function call
-@function_tool
-async def end_call(ctx: RunContext):
-    """Called when the user wants to end the call"""
-    # let the agent finish speaking
-    current_speech = ctx.session.current_speech
-    if current_speech:
-        await current_speech.wait_for_playout()
-
-    await hangup_call()
-
-@function_tool()
-async def send_confirmation_sms(context: RunContext_T) -> str:
-    """Send SMS confirmation to the customer with all booking details."""
-    userdata = context.userdata
-    
-    try:
-        # Get Twilio credentials from environment
-        account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-        auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-        twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
-        
-        if not all([account_sid, auth_token, twilio_number]):
-            logger.error("Missing Twilio credentials in environment variables")
-            return "Failed to send confirmation SMS - missing credentials"
-        
-        # Create Twilio client
-        client = Client(account_sid, auth_token)
-        
-        # Use the already formatted phone number from userdata
-        customer_phone = userdata.customer_phone
-        
-        # Create confirmation message
-        message_body = f"""SmileRight Dental Clinic - Appointment Confirmation
-Date: {userdata.booking_date_time}
-Phone: {userdata.customer_phone}
-Reason: {userdata.booking_reason}
-"""
-        
-        # Send SMS
-        message = client.messages.create(
-            body=message_body,
-            from_=twilio_number,
-            to=customer_phone
-        )
-        
-        logger.info(f"Confirmation SMS sent successfully. SID: {message.sid}")
-        logger.info(f"SMS sent to: {customer_phone}")
-        
-        return f"Confirmation SMS sent successfully to {customer_phone}"
-        
-    except Exception as e:
-        logger.error(f"Error sending confirmation SMS: {e}")
-        return f"Failed to send confirmation SMS: {str(e)}"
-
-
 class MainAgent(Agent):
     def __init__(self) -> None:
         current_time = datetime.now().strftime('%A, %B %d, %Y at %I:%M %p')
-        
-        OPERATING_HOURS = "Monday to Friday from 8:00 AM to 6:00 PM"
         
         MAIN_PROMPT = f"""
 You are the automated survey agent for the InnoVet-AMR initiative on climate change, antimicrobial resistance (AMR), and animal health.
@@ -171,7 +77,7 @@ If the participant asks for information outside your scope, respond succinctly t
        
         super().__init__(
             instructions=MAIN_PROMPT,
-            tools=[extract_phone_from_room_name],
+            tools=[],
             tts=openai.TTS(voice="nova"),
         )
         
@@ -184,18 +90,6 @@ If the participant asks for information outside your scope, respond succinctly t
 def prewarm(proc: JobProcess):
     proc.userdata["vad"] = silero.VAD.load()
     
-def extract_phone_from_room_name(room_name: str) -> str:
-    """
-    Extract phone number from room name like 'call-_+15145859691_yZ35TYo5aNjy'
-    Returns the phone number or None if not found
-    """
-    pattern = r'call-_(\+\d+)_'
-    match = re.search(pattern, room_name)
-    
-    if match:
-        return match.group(1)
-    
-    return None
 
 # Add this function definition anywhere
 async def hangup_call():
@@ -212,23 +106,14 @@ async def hangup_call():
     
 async def entrypoint(ctx: agents.JobContext):
     
-   # Get room info and extract phone number
-    room = ctx.room
-    room_name = room.name
-    
-    phone_number = extract_phone_from_room_name(room_name)
-    
-    logger.info(f"Room name: {room_name}")
-    logger.info(f"Phone number: {phone_number}")
         
     userdata = UserData()
-    userdata.customer_phone = phone_number if phone_number else None
     
     userdata.agents.update({
         "main_agent": MainAgent(),
     })
     
-    recording_success = await start_s3_recording(room_name, userdata)
+    recording_success = await start_s3_recording("futures_survey", userdata)
     if recording_success:
         logger.info("S3 Recording started successfully")
     else:
